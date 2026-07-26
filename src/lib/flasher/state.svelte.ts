@@ -92,8 +92,8 @@ export class Flasher {
 		this.interrupted = null;
 		try {
 			const [bl2, bootloader] = await Promise.all([
-				settings.customBl2?.arrayBuffer() ?? fetchBootImage('/bin/superbird.bl2.encrypted.bin'),
-				settings.customBootloader?.arrayBuffer() ?? fetchBootImage('/bin/superbird.bootloader.img')
+				settings.customBl2?.arrayBuffer() ?? fetchBootImage('bin/superbird.bl2.encrypted.bin'),
+				settings.customBootloader?.arrayBuffer() ?? fetchBootImage('bin/superbird.bootloader.img')
 			]);
 			if (settings.customBl2 || settings.customBootloader) {
 				this.log('using custom boot images');

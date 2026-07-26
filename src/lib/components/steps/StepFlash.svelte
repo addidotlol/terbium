@@ -84,13 +84,13 @@
 		</Alert.Root>
 		{#if flasher.interrupted}
 			<p class="max-w-[56ch] text-base/7 text-pretty text-muted-foreground sm:text-sm/6">
-				The partition being written was left incomplete. It's highly likely that your device will not
-				successfully boot until this is fixed. Press <b>Start Over</b> below and try again.
+				The partition being written was left incomplete. It's highly likely that your device will
+				not successfully boot until this is fixed. Press <b>Start Over</b> below and try again.
 			</p>
 		{:else}
 			<p class="max-w-[56ch] text-base/7 text-pretty text-muted-foreground sm:text-sm/6">
-				Your device is likely okay. Retry, or unplug, redo the
-				button hold, and start again from the connect step.
+				Your device is likely okay. Retry, or unplug, redo the button hold, and start again from the
+				connect step.
 			</p>
 		{/if}
 		<div class="flex items-center gap-3">
