@@ -12,8 +12,8 @@ importers:
         specifier: ^4.12.0
         version: 4.12.0
       libsuperbird:
-        specifier: ^0.2.0
-        version: 0.2.0
+        specifier: ^0.3.0
+        version: 0.3.0
     devDependencies:
       '@eslint/js':
         specifier: ^10.0.1
@@ -1241,8 +1241,8 @@ packages:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
     engines: {node: '>= 0.8.0'}
 
-  libsuperbird@0.2.0:
-    resolution: {integrity: sha512-i9qzrJaLU63lWVWBP7bhTtEHonyS47iMRppsfEa9/OtMYD0Y02KlmU9tby5dgN1jUEZ7Y2Pv+GfJPob8dCnWUw==}
+  libsuperbird@0.3.0:
+    resolution: {integrity: sha512-1amUmLFX/wPyrs9rngKucNKPvBBb+ViS3aVIZPtiQQfF/nueLLpPbKeMcYNGImOUh/v05GnBRUGVZP7mvn+C4Q==}
 
   lightningcss-android-arm64@1.32.0:
     resolution: {integrity: sha512-YK7/ClTt4kAK0vo6w3X+Pnm0D2cf2vPHbhOXdoNti1Ga0al1P4TBZhwjATvjNwLEBCnKvjJc2jQgHXH0NEwlAg==}
@@ -2805,7 +2805,7 @@ snapshots:
       prelude-ls: 1.2.1
       type-check: 0.4.0
 
-  libsuperbird@0.2.0:
+  libsuperbird@0.3.0:
     dependencies:
       '@types/w3c-web-usb': 1.0.14
 

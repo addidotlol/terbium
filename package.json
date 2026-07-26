@@ -48,6 +48,6 @@
 	},
 	"dependencies": {
 		"hash-wasm": "^4.12.0",
-		"libsuperbird": "^0.2.0"
+		"libsuperbird": "^0.3.0"
 	}
 }

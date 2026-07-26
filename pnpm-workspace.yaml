@@ -2,3 +2,5 @@ allowBuilds:
   '@tailwindcss/oxide': true
   esbuild: true
   workerd: true
+minimumReleaseAgeExclude:
+  - libsuperbird@0.3.0
