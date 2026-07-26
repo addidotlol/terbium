@@ -1,0 +1,454 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://terbium.app/schema/manifest/v1.json",
+  "title": "ThingLabs Discovery Manifest",
+  "description": "Per-project discover-page manifest consumed by Terbium and thingify.tools to list installable Spotify Car Thing builds.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_version",
+    "updated_at",
+    "project",
+    "channels",
+    "releases"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "Optional pointer to this schema. Editors auto-validate when present."
+    },
+    "manifest_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Major schema version. Consumers MUST refuse manifests whose major version they do not implement."
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of when the manifest was last regenerated."
+    },
+    "project": {
+      "$ref": "#/$defs/Project"
+    },
+    "channels": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/Slug"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/Channel"
+      },
+      "description": "Map of channel slug to channel record."
+    },
+    "releases": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/Version"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/Release"
+      },
+      "description": "Map of release version to release record."
+    }
+  },
+  "$defs": {
+    "Slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Lowercase ASCII alphanumeric and hyphens; must start and end with an alphanumeric."
+    },
+    "Version": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9.+\\-]*[A-Za-z0-9])?$",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "Opaque release identifier. Semver (with optional pre-release suffix) is recommended but not enforced."
+    },
+    "Sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "Lowercase hex SHA-256 digest of the artifact bytes."
+    },
+    "Project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "description",
+        "publisher",
+        "publisher_url",
+        "license",
+        "website",
+        "source_url",
+        "issue_url",
+        "support_url",
+        "icon_url",
+        "banner_url",
+        "screenshots"
+      ],
+      "properties": {
+        "id": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Slug"
+            }
+          ],
+          "description": "Stable project slug. Used as a dedupe key in client UIs and SHOULD NOT change across releases."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Display name."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "description": "One-line tagline for discover cards."
+        },
+        "publisher": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Author handle or organization."
+        },
+        "publisher_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
+        },
+        "license": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "SPDX identifier when applicable, free-form otherwise."
+        },
+        "website": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
+        },
+        "source_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
+        },
+        "issue_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
+        },
+        "support_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri",
+          "description": "Discord, forum, or other support channel."
+        },
+        "icon_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri",
+          "description": "Square project icon; recommend >=256x256 PNG or SVG."
+        },
+        "banner_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri",
+          "description": "Wide hero image for store-style listings."
+        },
+        "screenshots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Screenshot"
+          },
+          "description": "Project screenshots. Empty array if none."
+        }
+      }
+    },
+    "Screenshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "caption",
+        "alt"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "caption": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 200,
+          "description": "Short visible label."
+        },
+        "alt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 500,
+          "description": "Accessibility text. Strongly recommended; null only if truly decorative."
+        }
+      }
+    },
+    "Channel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "description",
+        "stability",
+        "default",
+        "latest",
+        "releases"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50,
+          "description": "Display name (e.g. 'Stable', 'Beta')."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "stability": {
+          "type": "string",
+          "enum": [
+            "stable",
+            "beta",
+            "experimental"
+          ],
+          "description": "UI hint. Tools MAY default-hide non-stable channels."
+        },
+        "default": {
+          "type": "boolean",
+          "description": "At most one channel in a manifest SHOULD have default=true."
+        },
+        "latest": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Version"
+            }
+          ],
+          "description": "MUST reference a version key present in the top-level releases map."
+        },
+        "releases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Version"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Versions in this channel, newest-first. Each entry MUST reference a key in the top-level releases map and the referenced release's `channel` field MUST equal this channel's slug."
+        }
+      }
+    },
+    "Release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "channel",
+        "released_at",
+        "summary",
+        "changelog",
+        "changelog_url",
+        "yanked",
+        "deprecated",
+        "download"
+      ],
+      "properties": {
+        "version": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Version"
+            }
+          ],
+          "description": "MUST equal the key under which this release is filed."
+        },
+        "channel": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Slug"
+            }
+          ],
+          "description": "MUST reference a channel id present in the top-level channels map."
+        },
+        "released_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "description": "Short blurb shown in release cards."
+        },
+        "changelog": {
+          "type": "string",
+          "description": "Markdown body shown when a release is expanded."
+        },
+        "changelog_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri",
+          "description": "Optional deep link to a richer release-notes page."
+        },
+        "yanked": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "description": "If non-null, a human-readable reason this release was withdrawn. Consumers MUST refuse to install yanked releases."
+        },
+        "deprecated": {
+          "type": "boolean",
+          "description": "Hide from default pickers; explicit opt-in is allowed."
+        },
+        "builtin_webapps": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Builtin webapp versions this release ships, keyed by slug (hub, stock). The companion reads these to detect bandaid webapp drift. Optional; absent on releases predating builtin-webapp OTA."
+        },
+        "artifacts": {
+          "$ref": "#/$defs/ReleaseArtifacts"
+        },
+        "download": {
+          "$ref": "#/$defs/Download"
+        }
+      }
+    },
+    "Download": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "size",
+        "sha256"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Direct download URL for the flashable zip."
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Size of the artifact in bytes."
+        },
+        "sha256": {
+          "$ref": "#/$defs/Sha256"
+        }
+      }
+    },
+    "ArtifactDigest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "size",
+        "sha256"
+      ],
+      "properties": {
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Size of the artifact in bytes."
+        },
+        "sha256": {
+          "$ref": "#/$defs/Sha256"
+        }
+      }
+    },
+    "ReleaseArtifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-artifact digests for the OTA-conventioned artifacts this release carries, keyed by artifact kind. Every key is optional; the companion validates its download cache against whichever are present.",
+      "properties": {
+        "daemon": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ArtifactDigest"
+            }
+          ],
+          "description": "The raw aarch64 daemon binary."
+        },
+        "image_swu": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ArtifactDigest"
+            }
+          ],
+          "description": "The delta swupdate image."
+        },
+        "image_zck": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ArtifactDigest"
+            }
+          ],
+          "description": "The system rootfs zck delta source."
+        },
+        "image_boot_zck": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ArtifactDigest"
+            }
+          ],
+          "description": "The boot partition zck delta source."
+        },
+        "webapps": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ArtifactDigest"
+          },
+          "description": "Per-webapp zip digests, keyed by slug (hub, stock)."
+        },
+        "daemon_patches": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ArtifactDigest"
+          },
+          "description": "Daemon delta-patch digests keyed by the from-daemon-version each applies against."
+        }
+      }
+    }
+  }
+}
