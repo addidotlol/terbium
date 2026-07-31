@@ -1,0 +1,109 @@
+{
+	"$schema": "https://terbium.app/schema/meta/v1.json",
+	"metadataVersion": 2,
+	"name": "Factory Reset to Spotify",
+	"version": "8.2.5",
+	"description": "Restores the stock Spotify Car Thing firmware, wiping any custom firmware and returning the device to its factory 8.2.5 state.",
+	"steps": [
+		{
+			"type": "log",
+			"value": "writing the emergency stock recovery image"
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 0, "data": { "filePath": "unbrick.bin" } }
+		},
+		{
+			"type": "log",
+			"value": "restoring stock Spotify firmware 8.2.5"
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 237568, "data": { "filePath": "env.dump" } }
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 270336, "data": { "filePath": "fip_a.dump" } }
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 294912, "data": { "filePath": "fip_b.dump" } }
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 319488, "data": { "filePath": "logo.dump" } }
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 352256, "data": { "filePath": "dtbo_a.dump" } }
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 376832, "data": { "filePath": "dtbo_b.dump" } }
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 401408, "data": { "filePath": "vbmeta_a.dump" } }
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 419840, "data": { "filePath": "vbmeta_b.dump" } }
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 438272, "data": { "filePath": "boot_a.dump" } }
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 487424, "data": { "filePath": "boot_b.dump" } }
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 536576, "data": { "filePath": "system_a.dump" } }
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 1609816, "data": { "filePath": "system_b.dump" } }
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 2683056, "data": { "filePath": "misc.dump" } }
+		},
+		{
+			"type": "log",
+			"value": "clearing user data left by previous firmware"
+		},
+		{
+			"type": "writeUserArea",
+			"value": {
+				"lba": 2715824,
+				"data": { "filePath": "zero-settings.bin" },
+				"sparse": true
+			}
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 3256496, "data": { "filePath": "zero-data.bin" }, "sparse": true }
+		},
+		{
+			"type": "log",
+			"value": "restoring stock partition table and bootloader"
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 73728, "data": { "filePath": "mpt.bin" } }
+		},
+		{
+			"type": "writeUserArea",
+			"value": { "lba": 0, "data": { "filePath": "bootloader.dump" } }
+		},
+		{
+			"type": "writeBootPartition",
+			"value": { "hwpart": 1, "data": { "filePath": "stock-boot-partition.bin" } }
+		},
+		{
+			"type": "writeBootPartition",
+			"value": { "hwpart": 2, "data": { "filePath": "stock-boot-partition.bin" } }
+		}
+	]
+}

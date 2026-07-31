@@ -57,7 +57,11 @@ export type Download = {
 	sha256: string;
 };
 
-export const DEFAULT_MANIFEST_URLS = ['https://ota.bridgething.com/manifest.json'];
+export const DEFAULT_MANIFEST_URLS = [
+	'/manifests/default.json',
+	'https://ota.bridgething.com/manifest.json',
+	'https://raw.githubusercontent.com/mira-thing/mira-releases/main/manifest.json'
+];
 
 const CUSTOM_SOURCES_KEY = 'terbium.manifest-sources';
 

@@ -49,9 +49,11 @@
 
 	async function loadAll(): Promise<void> {
 		loading = true;
+		const [stockUrl, ...defaultUrls] = DEFAULT_MANIFEST_URLS;
 		const urls = [
-			...DEFAULT_MANIFEST_URLS.map((url) => ({ url, custom: false })),
-			...customManifestUrls().map((url) => ({ url, custom: true }))
+			...defaultUrls.map((url) => ({ url, custom: false })),
+			...customManifestUrls().map((url) => ({ url, custom: true })),
+			...(stockUrl ? [{ url: stockUrl, custom: false }] : [])
 		];
 		sources = await Promise.all(
 			urls.map(async ({ url, custom }): Promise<Source> => {

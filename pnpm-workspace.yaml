@@ -3,4 +3,4 @@ allowBuilds:
   esbuild: true
   workerd: true
 minimumReleaseAgeExclude:
-  - libsuperbird@0.3.0
+  - libsuperbird@0.3.2

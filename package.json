@@ -11,6 +11,7 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"build:stock": "node scripts/build-stock-archive.mjs",
 		"lint": "prettier --check . && eslint .",
 		"format": "prettier --write ."
 	},
@@ -48,6 +49,6 @@
 	},
 	"dependencies": {
 		"hash-wasm": "^4.12.0",
-		"libsuperbird": "^0.3.0"
+		"libsuperbird": "^0.3.2"
 	}
 }

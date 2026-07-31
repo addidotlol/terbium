@@ -1,0 +1,47 @@
+{
+	"$schema": "https://terbium.app/schema/manifest/v1.json",
+	"manifest_version": 1,
+	"updated_at": "2026-07-26T00:00:00Z",
+	"project": {
+		"id": "car-thing-stock",
+		"name": "Factory Reset to Spotify",
+		"description": "Restore the original Spotify firmware and undo any custom install.",
+		"publisher": "Thing Labs",
+		"publisher_url": "https://terbium.app",
+		"license": null,
+		"website": "https://terbium.app",
+		"source_url": null,
+		"issue_url": "https://github.com/addidotlol/terbium/issues",
+		"support_url": null,
+		"icon_url": null,
+		"banner_url": null,
+		"screenshots": []
+	},
+	"channels": {
+		"stable": {
+			"name": "Stock",
+			"description": "Factory Spotify firmware.",
+			"stability": "stable",
+			"default": true,
+			"latest": "8.2.5",
+			"releases": ["8.2.5"]
+		}
+	},
+	"releases": {
+		"8.2.5": {
+			"version": "8.2.5",
+			"channel": "stable",
+			"released_at": "2023-01-21T22:00:00Z",
+			"summary": "Restors 8.2.5, second to last known version",
+			"changelog": "Restores the stock bootloader, partition table and every stock partition, returning the device to how it left the factory. This can also act as an unbrick script, as it restores the original partition table.",
+			"changelog_url": null,
+			"yanked": null,
+			"deprecated": false,
+			"download": {
+				"url": "https://files.addi.dog/8.2.5_stock.zip?v=9ff3c382",
+				"size": 297850536,
+				"sha256": "e7496a7faa091719de1f27c18abdac1366ffac722dfbc47ebeed84a40a51ec99"
+			}
+		}
+	}
+}

@@ -21,3 +21,7 @@ Thumbs.db
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Firmware build inputs
+/firmware/stock/*
+!/firmware/stock/meta.json
