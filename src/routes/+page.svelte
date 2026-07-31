@@ -190,7 +190,7 @@
 				github
 			</a>
 			<span aria-hidden="true">·</span>
-			<span class="tabular-nums">20260726.01</span>
+			<span class="tabular-nums">20260731.01</span>
 		</div>
 		<div></div>
 	</footer>
