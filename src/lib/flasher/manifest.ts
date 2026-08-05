@@ -60,6 +60,7 @@ export type Download = {
 export const DEFAULT_MANIFEST_URLS = [
 	'/manifests/default.json',
 	'https://ota.bridgething.com/manifest.json',
+	'https://ota.usenocturne.com/manifest.json',
 	'https://raw.githubusercontent.com/mira-thing/mira-releases/main/manifest.json'
 ];
 
