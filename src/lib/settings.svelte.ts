@@ -18,7 +18,8 @@ class Settings {
 	forceSparse = $state(stored().forceSparse ?? false);
 	advancedMode = $state(stored().advancedMode ?? false);
 	customBl2 = $state<File | null>(null);
-	customBootloader = $state<File | null>(null);
+	/** Signed FIP streamed to BL2 during the mask-ROM bootstrap. */
+	customFip = $state<File | null>(null);
 
 	save(): void {
 		localStorage.setItem(

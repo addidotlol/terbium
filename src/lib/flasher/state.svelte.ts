@@ -1,22 +1,35 @@
 import { SvelteDate } from 'svelte/reactivity';
 import { asset } from '$app/paths';
-import {
-	protocol,
-	Superbird,
-	SuperbirdError,
-	type ConnectStatus,
-	type FlashProgress
-} from 'libsuperbird';
 import type { DiscoverManifest, Release } from './manifest';
 import { settings } from '$lib/settings.svelte';
 import { fetchRelease, fetchZip, type DownloadProgress } from './download';
 import { FlashArchive } from './archive';
-import { runFlashConfig, stepWeights, type StepEvent } from './runner';
+import { runFlashConfig, stepWeights, writeEnv, type StepEvent } from './runner';
+import type { FlashProgress } from './types';
+import {
+	Fastboot,
+	FASTBOOT_PRODUCT_ID,
+	FASTBOOT_VENDOR_ID,
+	isFastbootDevice
+} from '$lib/fastboot/client';
+import {
+	Maskrom,
+	MASKROM_PRODUCT_ID,
+	MASKROM_VENDOR_ID,
+	isMaskromDevice
+} from '$lib/fastboot/maskrom';
 
 export type FlasherPhase =
 	'idle' | 'connecting' | 'connected' | 'downloading' | 'preparing' | 'flashing' | 'done' | 'error';
 
 export type InterruptedFlash = 'cancelled' | 'disconnected';
+
+/**
+ * `bootstrapping` and `waiting-fastboot` only happen for a device found in
+ * mask-ROM; one already in fastboot goes straight from `connecting` to
+ * `connected`.
+ */
+export type ConnectStatus = 'connecting' | 'bootstrapping' | 'waiting-fastboot' | 'connected';
 
 export interface LogLine {
 	time: Date;
@@ -42,11 +55,13 @@ function errorMessage(error: unknown): string {
 
 const CONNECT_STATUS_TEXT: Record<ConnectStatus, string> = {
 	connecting: 'connecting to device',
-	'bl2-boot': 'sending bootloader',
-	resetting: 'restarting into burn mode',
-	'waiting-reconnect': 'waiting for the device to come back',
+	bootstrapping: 'starting the bootloader',
+	'waiting-fastboot': 'waiting for the device to come back',
 	connected: 'connected'
 };
+
+/** How long to wait for the device to re-enumerate in fastboot after a bl2 boot. */
+const FASTBOOT_REAPPEAR_TIMEOUT_MS = 20_000;
 
 export class Flasher {
 	phase = $state<FlasherPhase>('idle');
@@ -63,7 +78,7 @@ export class Flasher {
 	overallPercent = $state(0);
 	flashedName = $state('');
 
-	bird: Superbird | null = null;
+	device: Fastboot | null = null;
 	private abortController: AbortController | null = null;
 	private weights: number[] = [];
 	private wakeLock: WakeLockSentinel | null = null;
@@ -85,37 +100,65 @@ export class Flasher {
 		return typeof navigator !== 'undefined' && 'usb' in navigator;
 	}
 
+	private setStatus(status: ConnectStatus): void {
+		this.connectStatus = status;
+		this.log(CONNECT_STATUS_TEXT[status]);
+	}
+
+	/**
+	 * Get to a device that speaks fastboot.
+	 *
+	 * A device already running our u-boot shows up as 18d1:fada and we just
+	 * talk to it. A stock or bricked one only offers the SoC boot ROM
+	 * (1b8e:c003), which speaks nothing but the amlogic protocol, so we use it
+	 * exactly once to load our signed bootloader into RAM. That bootloader sees
+	 * it was started over USB and enters fastboot on its own, and everything
+	 * from there is fastboot.
+	 */
 	async connect(): Promise<void> {
 		if (this.busy) return;
 		this.phase = 'connecting';
 		this.error = null;
 		this.interrupted = null;
 		try {
-			const [bl2, bootloader] = await Promise.all([
-				settings.customBl2?.arrayBuffer() ?? fetchBootImage('bin/superbird.bl2.encrypted.bin'),
-				settings.customBootloader?.arrayBuffer() ?? fetchBootImage('bin/superbird.bootloader.img')
-			]);
-			if (settings.customBl2 || settings.customBootloader) {
-				this.log('using custom boot images');
-			}
-			this.bird = await Superbird.connect({
-				bl2,
-				bootloader,
-				onStatus: (status) => {
-					this.connectStatus = status;
-					this.log(CONNECT_STATUS_TEXT[status]);
-					if (status === 'waiting-reconnect') {
-						this.requestBurnDevice({ silent: true });
-					}
+			let usb = await requestSupportedDevice();
+
+			if (isMaskromDevice(usb)) {
+				this.setStatus('connecting');
+				const [bl2, fip] = await Promise.all([
+					settings.customBl2?.arrayBuffer() ?? fetchBootImage('bin/superbird.bl2.encrypted.bin'),
+					settings.customFip?.arrayBuffer() ?? fetchBootImage('bin/carthing.fip.bin')
+				]);
+				if (settings.customBl2 || settings.customFip) {
+					this.log('using custom boot images');
 				}
-			});
+
+				this.setStatus('bootstrapping');
+				const maskrom = await Maskrom.open(usb);
+				try {
+					await maskrom.bl2Boot(new Uint8Array(bl2), new Uint8Array(fip), (message) =>
+						this.log(message)
+					);
+				} finally {
+					await maskrom.close();
+				}
+
+				this.setStatus('waiting-fastboot');
+				usb = await waitForFastbootDevice(FASTBOOT_REAPPEAR_TIMEOUT_MS);
+			} else if (!isFastbootDevice(usb)) {
+				throw new Error('that device is not a Car Thing in USB mode');
+			}
+
+			this.setStatus('connecting');
+			this.device = await Fastboot.open(usb);
+			this.setStatus('connected');
 			this.phase = 'connected';
 			this.watchDisconnect();
 		} catch (error) {
-			this.bird = null;
+			this.device = null;
 			this.connectStatus = null;
 			await this.releaseOpenDevices();
-			if (error instanceof SuperbirdError && error.code === 'not-found') {
+			if (error instanceof DOMException && error.name === 'NotFoundError') {
 				this.phase = 'idle';
 				this.log('no device selected', 'error');
 				return;
@@ -124,10 +167,18 @@ export class Flasher {
 		}
 	}
 
-	async requestBurnDevice(options: { silent?: boolean } = {}): Promise<void> {
+	/**
+	 * Re-pair the device after it re-enumerates.
+	 *
+	 * Neither mask-ROM nor our fastboot gadget reports a serial number, so each
+	 * time the device comes back the browser treats it as a brand new one and
+	 * the previous permission doesn't carry over. That means a fresh
+	 * `requestDevice` from a user gesture for every USB transition.
+	 */
+	async requestFastbootDevice(options: { silent?: boolean } = {}): Promise<void> {
 		try {
 			await navigator.usb.requestDevice({
-				filters: [{ vendorId: protocol.VENDOR_ID, productId: protocol.PRODUCT_ID }]
+				filters: [{ vendorId: FASTBOOT_VENDOR_ID, productId: FASTBOOT_PRODUCT_ID }]
 			});
 			this.log('device re-paired');
 		} catch {
@@ -136,14 +187,14 @@ export class Flasher {
 	}
 
 	private watchDisconnect(): void {
-		const device = this.bird?.usbDevice;
-		if (!device) return;
+		const usb = this.device?.usbDevice;
+		if (!usb) return;
 		const onDisconnect = (event: USBConnectionEvent) => {
-			if (event.device !== device) return;
+			if (event.device !== usb) return;
 			navigator.usb.removeEventListener('disconnect', onDisconnect);
 			if (this.busy) {
 				this.abortController?.abort();
-				this.bird = null;
+				this.device = null;
 				this.interrupted = 'disconnected';
 				this.error = 'the device was unplugged before the flash finished';
 				this.phase = 'error';
@@ -157,7 +208,7 @@ export class Flasher {
 	}
 
 	async flash(selection: FirmwareSelection): Promise<void> {
-		if (!this.bird || this.busy) return;
+		if (!this.device || this.busy) return;
 		this.selection = selection;
 		this.error = null;
 		this.interrupted = null;
@@ -198,7 +249,7 @@ export class Flasher {
 			this.log(`flashing ${archive.meta.name} ${archive.meta.version}`);
 
 			this.phase = 'flashing';
-			await runFlashConfig(this.bird, archive.meta, archive, {
+			await runFlashConfig(this.device, archive.meta, archive, {
 				signal,
 				onLog: (message) => this.log(message),
 				onStep: (event) => this.onStep(event),
@@ -268,12 +319,13 @@ export class Flasher {
 		this.abortController?.abort();
 	}
 
+	/** Run a u-boot command on the device and return its console output. */
 	async runCommand(command: string): Promise<string> {
-		if (!this.bird) throw new Error('not connected');
+		if (!this.device) throw new Error('not connected');
 		this.log(`> ${command}`, 'command');
 		try {
-			const response = await this.bird.bulkcmd(command);
-			this.log(response);
+			const response = await this.device.console(command);
+			if (response.trim()) this.log(response);
 			return response;
 		} catch (error) {
 			this.log(errorMessage(error), 'error');
@@ -282,9 +334,27 @@ export class Flasher {
 	}
 
 	async writeEnv(env: string, save: boolean): Promise<void> {
-		if (!this.bird) throw new Error('not connected');
-		await this.bird.writeEnv(env, { save });
-		this.log(save ? 'environment written and saved' : 'environment written');
+		if (!this.device) throw new Error('not connected');
+		const { saved } = await writeEnv(this.device, env, { save, onLog: (m) => this.log(m) });
+		this.log(saved ? 'environment written and saved' : 'environment written');
+	}
+
+	/** Boot the firmware that's on the device now, leaving fastboot behind. */
+	async rebootDevice(): Promise<void> {
+		if (!this.device) throw new Error('not connected');
+		await this.device.reboot();
+		this.device = null;
+		this.log('device rebooting');
+		this.reset();
+	}
+
+	/** Drop the device back to the SoC boot ROM, e.g. to recover a bad bootloader. */
+	async rebootToMaskrom(): Promise<void> {
+		if (!this.device) throw new Error('not connected');
+		await this.device.rebootMaskrom();
+		this.device = null;
+		this.log('device returning to USB mode');
+		this.reset();
 	}
 
 	private fail(error: unknown): void {
@@ -295,9 +365,9 @@ export class Flasher {
 	}
 
 	reset(): void {
-		const bird = this.bird;
-		this.bird = null;
-		bird?.close().catch(() => {});
+		const device = this.device;
+		this.device = null;
+		device?.close().catch(() => {});
 		this.phase = 'idle';
 		this.connectStatus = null;
 		this.error = null;
@@ -317,7 +387,7 @@ export class Flasher {
 		this.totalSteps = 0;
 		this.stepLabel = '';
 		this.overallPercent = 0;
-		this.phase = this.bird ? 'connected' : 'idle';
+		this.phase = this.device ? 'connected' : 'idle';
 	}
 
 	private async releaseOpenDevices(): Promise<void> {
@@ -325,6 +395,42 @@ export class Flasher {
 		await Promise.all(
 			devices.filter((device) => device.opened).map((device) => device.close().catch(() => {}))
 		);
+	}
+}
+
+/** Prompt for either a device already in fastboot or one sitting in the boot ROM. */
+async function requestSupportedDevice(): Promise<USBDevice> {
+	const paired = await navigator.usb.getDevices().catch(() => [] as USBDevice[]);
+	const alreadyPaired = paired.find(
+		(device) => isFastbootDevice(device) || isMaskromDevice(device)
+	);
+	if (alreadyPaired) return alreadyPaired;
+
+	return navigator.usb.requestDevice({
+		filters: [
+			{ vendorId: FASTBOOT_VENDOR_ID, productId: FASTBOOT_PRODUCT_ID },
+			{ vendorId: MASKROM_VENDOR_ID, productId: MASKROM_PRODUCT_ID }
+		]
+	});
+}
+
+/**
+ * Wait for the device to reappear in fastboot after the bootloader starts.
+ *
+ * It usually needs a fresh permission grant (no serial number, so the browser
+ * sees a new device), which only a user gesture can provide; the UI offers a
+ * button for that while this polls.
+ */
+async function waitForFastbootDevice(timeoutMs: number): Promise<USBDevice> {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		const devices = await navigator.usb.getDevices().catch(() => [] as USBDevice[]);
+		const found = devices.find(isFastbootDevice);
+		if (found) return found;
+		if (Date.now() >= deadline) {
+			throw new Error('the device did not come back in fastboot mode');
+		}
+		await new Promise((resolve) => setTimeout(resolve, 250));
 	}
 }
 

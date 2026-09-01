@@ -1,0 +1,132 @@
+<#
+.SYNOPSIS
+    Car Thing Driver Installer for Windows
+.DESCRIPTION
+    Installs WinUSB drivers for the Spotify Car Thing so the browser can talk
+    to it, in both the boot ROM and fastboot USB identities.
+.AUTHOR
+    Addison LeClair (https://addi.lol)
+.LINK
+    https://terbium.app
+.VERSION
+    1.1.0
+#>
+
+Write-Host "Car Thing Driver Installer - Thing Labs" -ForegroundColor Blue
+Write-Host "v1.1.0 - with <3 from Addison (addi.lol)" -ForegroundColor Blue
+Write-Host ""
+
+
+$originalDirectory = [System.Environment]::GetFolderPath('UserProfile')
+$url = "https://thingify.tools/files/blob/tSwx1EnvoGYk2bm8t43RQ/wFth0DCb6hnQwnJHnip_c/XwqnRRHluo5Y8wxx6dqIW?name=CTDrvInst.exe"
+$tempDir = Join-Path $env:TEMP "terbium-drv"
+$filePath = Join-Path $tempDir "CTDrvInst.exe"
+$logPath = Join-Path $tempDir "install.log"
+
+# The device shows up under two different VID:PIDs and Windows binds a driver
+# per-ID, so both need WinUSB or the flasher stalls halfway through.
+$devices = @(
+    @{ Vid = "0x1B8E"; Pid = "0xC003"; Name = "WorldCup Device" },
+    @{ Vid = "0x18D1"; Pid = "0xFADA"; Name = "Superbird" }
+)
+
+try {
+    if (-not (Test-Path $tempDir)) {
+        New-Item -Path $tempDir -ItemType Directory | Out-Null
+    }
+} catch {
+    Write-Host "Failed to create a temporary directory: $_" -ForegroundColor Red
+    exit 1
+}
+
+# A previous failed run leaves its log behind; stale lines would misname the
+# device that failed this time.
+Remove-Item -Path $logPath -Force -ErrorAction SilentlyContinue
+
+Set-Location $tempDir
+
+Write-Host "Downloading..." -ForegroundColor Yellow
+
+try {
+    Invoke-RestMethod -Uri $url -OutFile $filePath
+
+    if (-not (Test-Path $filePath)) {
+        Write-Host "Failed to download the driver installer." -ForegroundColor Red
+        exit 1
+    }
+} catch {
+    Write-Host "Failed to download the driver installer: $_" -ForegroundColor Red
+    exit 1
+}
+
+$Driver = if ($env:CTDriver) { $env:CTDriver } else { "winusb" }
+
+$drvType = switch ($Driver.ToLower()) {
+    "winusb" { 0 }
+    "winusb-libusb" { 1 }
+    "libusbk" { 2 }
+    "usbser" { 3 }
+    default {
+        Write-Host "Invalid driver type. Using default: winusb" -ForegroundColor Red
+        0
+    }
+}
+
+if ($drvType -ne 0) {
+    Write-Host "Using driver type: $drvType ($Driver)" -ForegroundColor Yellow
+}
+
+# Escape for embedding in the single-quoted PowerShell literals below.
+function Format-PSLiteral($value) { "'" + ($value -replace "'", "''") + "'" }
+
+$deviceLiterals = ($devices | ForEach-Object {
+    $wdiArgs = "-v $($_.Vid) -p $($_.Pid) -n `"$($_.Name)`" -t $drvType -s -b"
+    "@{ Name = $(Format-PSLiteral $_.Name); Args = $(Format-PSLiteral $wdiArgs) }"
+}) -join ", "
+
+# One elevated shell drives every install, so the user sees a single UAC
+# prompt instead of one per device. It reports back through a log file because
+# an exit code can only name the first failure, not which device it was.
+$inner = @"
+`$exe = $(Format-PSLiteral $filePath)
+`$log = $(Format-PSLiteral $logPath)
+foreach (`$device in @($deviceLiterals)) {
+    `$p = Start-Process -FilePath `$exe -ArgumentList `$device.Args -WindowStyle Hidden -Wait -PassThru
+    "`$(`$device.Name)=`$(`$p.ExitCode)" | Out-File -FilePath `$log -Append -Encoding utf8
+    if (`$p.ExitCode -ne 0) { exit `$p.ExitCode }
+}
+exit 0
+"@
+
+$encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($inner))
+$powershell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+
+Write-Host "Installing drivers for $($devices.Count) device IDs (one prompt)..." -ForegroundColor Yellow
+try {
+    $process = Start-Process -FilePath $powershell `
+        -ArgumentList "-NoProfile", "-NonInteractive", "-EncodedCommand", $encoded `
+        -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+    if ($process.ExitCode -ne 0) {
+        $failed = if (Test-Path $logPath) {
+            (Get-Content $logPath | Where-Object { $_ -notmatch "=0$" } | Select-Object -First 1) -replace "=.*$", ""
+        } else { "unknown device" }
+        throw "$failed failed with exit code: $($process.ExitCode)"
+    }
+} catch {
+    Write-Host "Failed to install the drivers: $_" -ForegroundColor Red
+    exit 1
+}
+
+Set-Location $originalDirectory
+
+Write-Host "Cleaning up..." -ForegroundColor Yellow
+try {
+    Remove-Item -Path $tempDir -Recurse -Force -ErrorAction Stop | Out-Null
+} catch {
+    Write-Host "Failed to clean up the temporary directory: $_" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "Successfully installed the drivers." -ForegroundColor Green
+Write-Host "You can now access the Car Thing on Windows!" -ForegroundColor Green
+Write-Host "Join our Discord: https://tl.mt/d" -ForegroundColor Blue

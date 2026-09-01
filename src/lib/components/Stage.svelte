@@ -148,7 +148,7 @@
 			model.flash('preset4', ACCENT, { infinite: true, duration: 1300 });
 			drawBlack();
 		} else if (step === 'connect') {
-			if (flasher.connectStatus === 'waiting-reconnect') {
+			if (flasher.connectStatus === 'waiting-fastboot') {
 				model.stopFlash('usb');
 				drawBlack();
 			} else {
