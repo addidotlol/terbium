@@ -138,14 +138,34 @@ if (missingFiles.length > 0) {
 	throw new Error(`missing stock payloads: ${missingFiles.join(', ')}`);
 }
 
-const recoveryStep = metadata.steps.find(
+const recoveryIndex = metadata.steps.findIndex(
 	(step) =>
 		step.type === 'writeUserArea' &&
 		step.value?.lba === 0 &&
 		step.value?.data?.filePath === RECOVERY_IMAGE.name
 );
-if (!recoveryStep) {
+if (recoveryIndex < 0) {
 	throw new Error('meta.json does not write unbrick.bin to LBA 0');
+}
+
+const mirrorIndex = metadata.steps.findIndex(
+	(step) =>
+		step.type === 'writeUserArea' &&
+		step.value?.lba === 0 &&
+		step.value?.data?.filePath === BOOT_PARTITION_NAME
+);
+if (mirrorIndex < 0) {
+	throw new Error(`meta.json must write ${BOOT_PARTITION_NAME} to LBA 0`);
+}
+if (mirrorIndex < recoveryIndex) {
+	throw new Error(
+		`meta.json writes ${BOOT_PARTITION_NAME} to LBA 0 before unbrick.bin overwrites it`
+	);
+}
+if (metadata.steps.some((step) => step.value?.data?.filePath === BOOTLOADER_NAME)) {
+	throw new Error(
+		`${BOOTLOADER_NAME} is a bare image with no info sector; write ${BOOT_PARTITION_NAME} instead`
+	);
 }
 
 const bootPartitionSteps = metadata.steps.filter((step) => step.type === 'writeBootPartition');

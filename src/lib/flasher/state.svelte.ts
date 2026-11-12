@@ -4,19 +4,40 @@ import {
 	protocol,
 	Superbird,
 	SuperbirdError,
-	type ConnectStatus,
-	type FlashProgress
+	type ConnectStatus as BurnModeConnectStatus
 } from 'libsuperbird';
 import type { DiscoverManifest, Release } from './manifest';
 import { settings } from '$lib/settings.svelte';
 import { fetchRelease, fetchZip, type DownloadProgress } from './download';
 import { FlashArchive } from './archive';
-import { runFlashConfig, stepWeights, type StepEvent } from './runner';
+import { stepWeights, type StepEvent } from './runner';
+import type { FlashProgress } from './types';
+import {
+	BurnModeFlashDevice,
+	FastbootFlashDevice,
+	type FlashDevice,
+	type FlashMethod
+} from './device';
+import {
+	Fastboot,
+	FASTBOOT_PRODUCT_ID,
+	FASTBOOT_VENDOR_ID,
+	isFastbootDevice
+} from '$lib/fastboot/client';
+import {
+	Maskrom,
+	MASKROM_PRODUCT_ID,
+	MASKROM_VENDOR_ID,
+	isMaskromDevice
+} from '$lib/fastboot/maskrom';
 
 export type FlasherPhase =
 	'idle' | 'connecting' | 'connected' | 'downloading' | 'preparing' | 'flashing' | 'done' | 'error';
 
 export type InterruptedFlash = 'cancelled' | 'disconnected';
+
+export type ConnectStatus =
+	'connecting' | 'bootstrapping' | 'resetting' | 'reconnecting' | 'connected';
 
 export interface LogLine {
 	time: Date;
@@ -42,14 +63,36 @@ function errorMessage(error: unknown): string {
 
 const CONNECT_STATUS_TEXT: Record<ConnectStatus, string> = {
 	connecting: 'connecting to device',
-	'bl2-boot': 'sending bootloader',
+	bootstrapping: 'sending bootloader',
 	resetting: 'restarting into burn mode',
-	'waiting-reconnect': 'waiting for the device to come back',
+	reconnecting: 'waiting for the device to come back',
 	connected: 'connected'
 };
 
+const BURN_MODE_CONNECT_STATUS: Record<BurnModeConnectStatus, ConnectStatus> = {
+	connecting: 'connecting',
+	'bl2-boot': 'bootstrapping',
+	resetting: 'resetting',
+	'waiting-reconnect': 'reconnecting',
+	connected: 'connected'
+};
+
+const RECONNECT_FILTERS: Record<FlashMethod, USBDeviceFilter> = {
+	fastboot: { vendorId: FASTBOOT_VENDOR_ID, productId: FASTBOOT_PRODUCT_ID },
+	'burn-mode': { vendorId: protocol.VENDOR_ID, productId: protocol.PRODUCT_ID }
+};
+
+const BUNDLED_BOOTLOADER: Record<FlashMethod, Parameters<typeof asset>[0]> = {
+	fastboot: 'bin/carthing.fip.bin',
+	'burn-mode': 'bin/superbird.bootloader.img'
+};
+
+const FASTBOOT_REAPPEAR_TIMEOUT_MS = 20_000;
+const FASTBOOT_REAPPEAR_POLL_MS = 250;
+
 export class Flasher {
 	phase = $state<FlasherPhase>('idle');
+	method = $state<FlashMethod | null>(null);
 	connectStatus = $state<ConnectStatus | null>(null);
 	error = $state<string | null>(null);
 	interrupted = $state<InterruptedFlash | null>(null);
@@ -63,7 +106,7 @@ export class Flasher {
 	overallPercent = $state(0);
 	flashedName = $state('');
 
-	bird: Superbird | null = null;
+	device: FlashDevice | null = null;
 	private abortController: AbortController | null = null;
 	private weights: number[] = [];
 	private wakeLock: WakeLockSentinel | null = null;
@@ -85,37 +128,30 @@ export class Flasher {
 		return typeof navigator !== 'undefined' && 'usb' in navigator;
 	}
 
+	private setStatus(status: ConnectStatus): void {
+		this.connectStatus = status;
+		this.log(CONNECT_STATUS_TEXT[status]);
+	}
+
 	async connect(): Promise<void> {
 		if (this.busy) return;
 		this.phase = 'connecting';
 		this.error = null;
 		this.interrupted = null;
+		this.method = settings.useBurnMode ? 'burn-mode' : 'fastboot';
+		this.log(
+			this.method === 'burn-mode' ? 'connecting in legacy burn mode' : 'connecting over fastboot'
+		);
 		try {
-			const [bl2, bootloader] = await Promise.all([
-				settings.customBl2?.arrayBuffer() ?? fetchBootImage('bin/superbird.bl2.encrypted.bin'),
-				settings.customBootloader?.arrayBuffer() ?? fetchBootImage('bin/superbird.bootloader.img')
-			]);
-			if (settings.customBl2 || settings.customBootloader) {
-				this.log('using custom boot images');
-			}
-			this.bird = await Superbird.connect({
-				bl2,
-				bootloader,
-				onStatus: (status) => {
-					this.connectStatus = status;
-					this.log(CONNECT_STATUS_TEXT[status]);
-					if (status === 'waiting-reconnect') {
-						this.requestBurnDevice({ silent: true });
-					}
-				}
-			});
+			this.device =
+				this.method === 'burn-mode' ? await this.connectBurnMode() : await this.connectFastboot();
 			this.phase = 'connected';
 			this.watchDisconnect();
 		} catch (error) {
-			this.bird = null;
+			this.device = null;
 			this.connectStatus = null;
 			await this.releaseOpenDevices();
-			if (error instanceof SuperbirdError && error.code === 'not-found') {
+			if (isNoDeviceSelected(error)) {
 				this.phase = 'idle';
 				this.log('no device selected', 'error');
 				return;
@@ -124,11 +160,62 @@ export class Flasher {
 		}
 	}
 
-	async requestBurnDevice(options: { silent?: boolean } = {}): Promise<void> {
+	private async connectFastboot(): Promise<FlashDevice> {
+		let usb = await requestFastbootOrMaskromDevice();
+
+		if (isMaskromDevice(usb)) {
+			this.setStatus('connecting');
+			const [bl2, fip] = await this.loadBootImages('fastboot');
+			this.setStatus('bootstrapping');
+			const maskrom = await Maskrom.open(usb);
+			try {
+				await maskrom.bl2Boot(new Uint8Array(bl2), new Uint8Array(fip), (message) =>
+					this.log(message)
+				);
+			} finally {
+				await maskrom.close();
+			}
+			this.setStatus('reconnecting');
+			usb = await waitForFastbootDevice(FASTBOOT_REAPPEAR_TIMEOUT_MS);
+		} else if (!isFastbootDevice(usb)) {
+			throw new Error('that device is not a Car Thing in USB mode');
+		}
+
+		this.setStatus('connecting');
+		const fastboot = await Fastboot.open(usb);
+		this.setStatus('connected');
+		return new FastbootFlashDevice(fastboot);
+	}
+
+	private async connectBurnMode(): Promise<FlashDevice> {
+		const [bl2, bootloader] = await this.loadBootImages('burn-mode');
+		const bird = await Superbird.connect({
+			bl2,
+			bootloader,
+			onStatus: (status) => {
+				const mapped = BURN_MODE_CONNECT_STATUS[status];
+				this.setStatus(mapped);
+				if (mapped === 'reconnecting') this.requestReconnectDevice({ silent: true });
+			}
+		});
+		return new BurnModeFlashDevice(bird);
+	}
+
+	private async loadBootImages(method: FlashMethod): Promise<[ArrayBuffer, ArrayBuffer]> {
+		const images = await Promise.all([
+			settings.customBl2?.arrayBuffer() ?? fetchBootImage('bin/superbird.bl2.encrypted.bin'),
+			settings.customBootloader?.arrayBuffer() ?? fetchBootImage(BUNDLED_BOOTLOADER[method])
+		]);
+		if (settings.customBl2 || settings.customBootloader) {
+			this.log('using custom boot images');
+		}
+		return images;
+	}
+
+	async requestReconnectDevice(options: { silent?: boolean } = {}): Promise<void> {
+		if (!this.method) return;
 		try {
-			await navigator.usb.requestDevice({
-				filters: [{ vendorId: protocol.VENDOR_ID, productId: protocol.PRODUCT_ID }]
-			});
+			await navigator.usb.requestDevice({ filters: [RECONNECT_FILTERS[this.method]] });
 			this.log('device re-paired');
 		} catch {
 			if (!options.silent) this.log('no device selected', 'error');
@@ -136,14 +223,14 @@ export class Flasher {
 	}
 
 	private watchDisconnect(): void {
-		const device = this.bird?.usbDevice;
-		if (!device) return;
+		const usb = this.device?.usbDevice;
+		if (!usb) return;
 		const onDisconnect = (event: USBConnectionEvent) => {
-			if (event.device !== device) return;
+			if (event.device !== usb) return;
 			navigator.usb.removeEventListener('disconnect', onDisconnect);
 			if (this.busy) {
 				this.abortController?.abort();
-				this.bird = null;
+				this.device = null;
 				this.interrupted = 'disconnected';
 				this.error = 'the device was unplugged before the flash finished';
 				this.phase = 'error';
@@ -157,7 +244,7 @@ export class Flasher {
 	}
 
 	async flash(selection: FirmwareSelection): Promise<void> {
-		if (!this.bird || this.busy) return;
+		if (!this.device || this.busy) return;
 		this.selection = selection;
 		this.error = null;
 		this.interrupted = null;
@@ -198,7 +285,7 @@ export class Flasher {
 			this.log(`flashing ${archive.meta.name} ${archive.meta.version}`);
 
 			this.phase = 'flashing';
-			await runFlashConfig(this.bird, archive.meta, archive, {
+			await this.device.flash(archive.meta, archive, {
 				signal,
 				onLog: (message) => this.log(message),
 				onStep: (event) => this.onStep(event),
@@ -269,11 +356,11 @@ export class Flasher {
 	}
 
 	async runCommand(command: string): Promise<string> {
-		if (!this.bird) throw new Error('not connected');
+		if (!this.device) throw new Error('not connected');
 		this.log(`> ${command}`, 'command');
 		try {
-			const response = await this.bird.bulkcmd(command);
-			this.log(response);
+			const response = await this.device.runCommand(command);
+			if (response.trim()) this.log(response);
 			return response;
 		} catch (error) {
 			this.log(errorMessage(error), 'error');
@@ -282,9 +369,9 @@ export class Flasher {
 	}
 
 	async writeEnv(env: string, save: boolean): Promise<void> {
-		if (!this.bird) throw new Error('not connected');
-		await this.bird.writeEnv(env, { save });
-		this.log(save ? 'environment written and saved' : 'environment written');
+		if (!this.device) throw new Error('not connected');
+		const { saved } = await this.device.writeEnv(env, save, (message) => this.log(message));
+		this.log(saved ? 'environment written and saved' : 'environment written');
 	}
 
 	private fail(error: unknown): void {
@@ -295,10 +382,11 @@ export class Flasher {
 	}
 
 	reset(): void {
-		const bird = this.bird;
-		this.bird = null;
-		bird?.close().catch(() => {});
+		const device = this.device;
+		this.device = null;
+		device?.close().catch(() => {});
 		this.phase = 'idle';
+		this.method = null;
 		this.connectStatus = null;
 		this.error = null;
 		this.interrupted = null;
@@ -317,7 +405,7 @@ export class Flasher {
 		this.totalSteps = 0;
 		this.stepLabel = '';
 		this.overallPercent = 0;
-		this.phase = this.bird ? 'connected' : 'idle';
+		this.phase = this.device ? 'connected' : 'idle';
 	}
 
 	private async releaseOpenDevices(): Promise<void> {
@@ -325,6 +413,41 @@ export class Flasher {
 		await Promise.all(
 			devices.filter((device) => device.opened).map((device) => device.close().catch(() => {}))
 		);
+	}
+}
+
+function isNoDeviceSelected(error: unknown): boolean {
+	return (
+		(error instanceof SuperbirdError && error.code === 'not-found') ||
+		(error instanceof DOMException && error.name === 'NotFoundError')
+	);
+}
+
+async function requestFastbootOrMaskromDevice(): Promise<USBDevice> {
+	const paired = await navigator.usb.getDevices().catch(() => [] as USBDevice[]);
+	const alreadyPaired = paired.find(
+		(device) => isFastbootDevice(device) || isMaskromDevice(device)
+	);
+	if (alreadyPaired) return alreadyPaired;
+
+	return navigator.usb.requestDevice({
+		filters: [
+			{ vendorId: FASTBOOT_VENDOR_ID, productId: FASTBOOT_PRODUCT_ID },
+			{ vendorId: MASKROM_VENDOR_ID, productId: MASKROM_PRODUCT_ID }
+		]
+	});
+}
+
+async function waitForFastbootDevice(timeoutMs: number): Promise<USBDevice> {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		const devices = await navigator.usb.getDevices().catch(() => [] as USBDevice[]);
+		const found = devices.find(isFastbootDevice);
+		if (found) return found;
+		if (Date.now() >= deadline) {
+			throw new Error('the device did not come back in fastboot mode');
+		}
+		await new Promise((resolve) => setTimeout(resolve, FASTBOOT_REAPPEAR_POLL_MS));
 	}
 }
 

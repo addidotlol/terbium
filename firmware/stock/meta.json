@@ -95,7 +95,7 @@
 		},
 		{
 			"type": "writeUserArea",
-			"value": { "lba": 0, "data": { "filePath": "bootloader.dump" } }
+			"value": { "lba": 0, "data": { "filePath": "stock-boot-partition.bin" } }
 		},
 		{
 			"type": "writeBootPartition",

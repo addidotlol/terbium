@@ -1,7 +1,8 @@
 import { parseFlashConfig } from 'libsuperbird/meta';
 import type { FlashConfig, FlashStep } from 'libsuperbird/meta';
 import { STOCK_META } from 'libsuperbird/meta';
-import type { StreamSource } from 'libsuperbird';
+import type { Bytes } from '$lib/bytes';
+import type { StreamSource } from './types';
 
 const EOCD_SIGNATURE = 0x06054b50;
 const EOCD64_LOCATOR_SIGNATURE = 0x07064b50;
@@ -176,7 +177,7 @@ export class FlashArchive {
 		return this.streamOf(path);
 	}
 
-	async bytesOf(path: string): Promise<Uint8Array> {
+	async bytesOf(path: string): Promise<Bytes> {
 		const { stream, size } = await this.streamOf(path);
 		const out = new Uint8Array(size);
 		const reader = stream.getReader();

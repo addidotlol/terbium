@@ -22,6 +22,26 @@
 		<div class="flex flex-col gap-6">
 			<div class="flex items-start justify-between gap-4">
 				<div class="min-w-0">
+					<Label for="burn-mode">Legacy burn-mode flashing</Label>
+					<p class="mt-1 text-base/6 text-pretty text-muted-foreground sm:text-sm/5">
+						Flash through Amlogic's burn mode and the vendor bootloader instead of fastboot. Try
+						this if fastboot won't connect. Applies the next time you connect.
+					</p>
+				</div>
+				<span class="flex h-lh shrink-0 items-center text-sm">
+					<Switch
+						id="burn-mode"
+						bind:checked={settings.useBurnMode}
+						onCheckedChange={() => {
+							settings.customBootloader = null;
+							settings.save();
+						}}
+					/>
+				</span>
+			</div>
+
+			<div class="flex items-start justify-between gap-4">
+				<div class="min-w-0">
 					<Label for="force-sparse">Force sparse flashing</Label>
 					<p class="mt-1 text-base/6 text-pretty text-muted-foreground sm:text-sm/5">
 						Skip all-zero chunks even when the archive doesn't ask for it.
@@ -40,7 +60,8 @@
 				<div>
 					<p class="text-sm font-medium">Overwrite BL2 & bootloader images</p>
 					<p class="mt-1 text-base/6 text-pretty text-muted-foreground sm:text-sm/5">
-						Used when connecting instead of the bundled images. Cleared on reload.
+						Used instead of the bundled images when starting a device from USB mode. Cleared on
+						reload.
 					</p>
 				</div>
 				<div class="flex flex-col gap-1.5">
@@ -54,15 +75,27 @@
 					/>
 				</div>
 				<div class="flex flex-col gap-1.5">
-					<Label for="custom-bootloader" class="text-muted-foreground">Bootloader</Label>
-					<Input
-						id="custom-bootloader"
-						type="file"
-						name="custom-bootloader"
-						accept=".img"
-						onchange={(event) =>
-							(settings.customBootloader = event.currentTarget.files?.[0] ?? null)}
-					/>
+					{#if settings.useBurnMode}
+						<Label for="custom-bootloader" class="text-muted-foreground">Vendor bootloader</Label>
+						<Input
+							id="custom-bootloader"
+							type="file"
+							name="custom-bootloader"
+							accept=".img"
+							onchange={(event) =>
+								(settings.customBootloader = event.currentTarget.files?.[0] ?? null)}
+						/>
+					{:else}
+						<Label for="custom-fip" class="text-muted-foreground">Bootloader (signed FIP)</Label>
+						<Input
+							id="custom-fip"
+							type="file"
+							name="custom-fip"
+							accept=".bin,.img"
+							onchange={(event) =>
+								(settings.customBootloader = event.currentTarget.files?.[0] ?? null)}
+						/>
+					{/if}
 				</div>
 			</div>
 
@@ -70,7 +103,7 @@
 				<div class="min-w-0">
 					<Label for="advanced-mode">Advanced mode</Label>
 					<p class="mt-1 text-base/6 text-pretty text-muted-foreground sm:text-sm/5">
-						Adds a device console for running raw burn-mode commands.
+						Adds a device console for running raw bootloader commands.
 					</p>
 				</div>
 				<span class="flex h-lh shrink-0 items-center text-sm">

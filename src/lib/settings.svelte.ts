@@ -3,6 +3,7 @@ const STORAGE_KEY = 'terbium.settings';
 interface StoredSettings {
 	forceSparse?: boolean;
 	advancedMode?: boolean;
+	useBurnMode?: boolean;
 }
 
 function stored(): StoredSettings {
@@ -17,13 +18,18 @@ function stored(): StoredSettings {
 class Settings {
 	forceSparse = $state(stored().forceSparse ?? false);
 	advancedMode = $state(stored().advancedMode ?? false);
+	useBurnMode = $state(stored().useBurnMode ?? false);
 	customBl2 = $state<File | null>(null);
 	customBootloader = $state<File | null>(null);
 
 	save(): void {
 		localStorage.setItem(
 			STORAGE_KEY,
-			JSON.stringify({ forceSparse: this.forceSparse, advancedMode: this.advancedMode })
+			JSON.stringify({
+				forceSparse: this.forceSparse,
+				advancedMode: this.advancedMode,
+				useBurnMode: this.useBurnMode
+			})
 		);
 	}
 }
